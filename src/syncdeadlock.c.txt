@@ -1,0 +1,125 @@
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+#define NUM_PROCS 5
+#define NUM_RES_TYPES 3
+#define CYCLES_PER_PROC 2
+
+// Resource IDs
+#define RES_PRINTER 0
+#define RES_SCANNER 1
+#define RES_DISK    2
+
+char *res_names[NUM_RES_TYPES] = {"Printer", "Scanner", "Disk"};
+
+// Counting semaphores implemented via xv6 pipes
+// Pipe capacity holds discrete tokens representing available instances
+int sem_pipes[NUM_RES_TYPES][2];
+
+// Initialize counting semaphore with 'val' available tokens
+void sem_init(int res_id, int val) {
+    if (pipe(sem_pipes[res_id]) < 0) {
+        printf("Pipe allocation failed\n");
+        exit(1);
+    }
+    char token = 'X';
+    for (int i = 0; i < val; i++) {
+        write(sem_pipes[res_id][1], &token, 1);
+    }
+}
+
+// Wait (P operation): blocks if no tokens are available in the pipe
+void sem_wait(int res_id) {
+    char token;
+    read(sem_pipes[res_id][0], &token, 1);
+}
+
+// Signal (V operation): replenishes an instance token
+void sem_signal(int res_id) {
+    char token = 'X';
+    write(sem_pipes[res_id][1], &token, 1);
+}
+
+// Worker process function
+void process_work(int id, int r1, int r2) {
+    // Enforce strict global hierarchy: always acquire smaller ID first
+    int first = (r1 < r2) ? r1 : r2;
+    int second = (r1 < r2) ? r2 : r1;
+
+    for (int iter = 1; iter <= CYCLES_PER_PROC; iter++) {
+        // 1. Request first resource
+        printf("[Process %d | Iter %d] Requesting %s...\n", id, iter, res_names[first]);
+        sem_wait(first);
+        printf("[Process %d | Iter %d] Granted %s.\n", id, iter, res_names[first]);
+
+        // Simulating inter-acquisition work/delay to trigger race conditions
+        sleep(1);
+
+        // 2. Request second resource
+        printf("[Process %d | Iter %d] Requesting %s...\n", id, iter, res_names[second]);
+        sem_wait(second);
+        printf("[Process %d | Iter %d] Granted %s.\n", id, iter, res_names[second]);
+
+        // 3. Critical Section: Working with both resources
+        printf("[Process %d | Iter %d] ---> Working with %s and %s <---\n", 
+               id, iter, res_names[first], res_names[second]);
+        sleep(2);
+
+        // 4. Release resources (in reverse or normal order)
+        printf("[Process %d | Iter %d] Releasing %s and %s.\n", 
+               id, iter, res_names[first], res_names[second]);
+        sem_signal(second);
+        sem_signal(first);
+
+        // Rest before next cycle
+        sleep(1);
+    }
+
+    exit(0);
+}
+
+int main(int argc, char *argv[]) {
+    printf("============================================================\n");
+    printf("  Question 4: Multi-Resource Synchronization & Prevention   \n");
+    printf("  Resource Pool: 2 Printers, 1 Scanner, 2 Disks             \n");
+    printf("  Strategy: Strict Hierarchical Resource Ordering           \n");
+    printf("============================================================\n\n");
+
+    // Initialize pools: 2 Printers, 1 Scanner, 2 Disks
+    sem_init(RES_PRINTER, 2);
+    sem_init(RES_SCANNER, 1);
+    sem_init(RES_DISK, 2);
+
+    // Resource assignments (each process requires 2 different resources)
+    int reqs[NUM_PROCS][2] = {
+        {RES_PRINTER, RES_SCANNER}, // P0: Printer & Scanner
+        {RES_SCANNER, RES_DISK},    // P1: Scanner & Disk
+        {RES_DISK, RES_PRINTER},    // P2: Disk & Printer
+        {RES_PRINTER, RES_DISK},    // P3: Printer & Disk
+        {RES_SCANNER, RES_PRINTER}  // P4: Scanner & Printer
+    };
+
+    // Fork 5 worker processes
+    for (int i = 0; i < NUM_PROCS; i++) {
+        int pid = fork();
+        if (pid < 0) {
+            printf("Fork failed for process %d\n", i);
+            exit(1);
+        } else if (pid == 0) {
+            process_work(i, reqs[i][0], reqs[i][1]);
+        }
+    }
+
+    // Parent waits for all 5 child processes to complete
+    for (int i = 0; i < NUM_PROCS; i++) {
+        wait(0);
+    }
+
+    printf("\n============================================================\n");
+    printf("All 5 processes successfully completed %d iterations each!\n", CYCLES_PER_PROC);
+    printf("No deadlock or resource leaks occurred.\n");
+    printf("============================================================\n");
+
+    exit(0);
+}

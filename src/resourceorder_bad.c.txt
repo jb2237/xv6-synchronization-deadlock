@@ -1,0 +1,75 @@
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+// Emulate shared resources/locks using pipes
+int lock1_pipe[2];
+int lock2_pipe[2];
+
+void init_locks() {
+    pipe(lock1_pipe);
+    pipe(lock2_pipe);
+    char token = 1;
+    write(lock1_pipe[1], &token, 1);
+    write(lock2_pipe[1], &token, 1);
+}
+
+void get_lock(int pipefd[2]) {
+    char token;
+    read(pipefd[0], &token, 1); // Blocks until resource token is acquired
+}
+
+void put_lock(int pipefd[2]) {
+    char token = 1;
+    write(pipefd[1], &token, 1);
+}
+
+int main(int argc, char *argv[]) {
+    printf("============================================================\n");
+    printf("  Q3: Deadlock Demonstration (Out-of-Order Acquisition)     \n");
+    printf("============================================================\n");
+
+    init_locks();
+
+    int pid = fork();
+    if (pid < 0) {
+        printf("Fork failed\n");
+        exit(1);
+    }
+
+    if (pid == 0) {
+        // Child Process: Process B (Acquires Lock 2 then Lock 1)
+        printf("[Process B] Attempting to acquire Lock 2...\n");
+        get_lock(lock2_pipe);
+        printf("[Process B] Acquired Lock 2.\n");
+
+        sleep(5); // Deliberate delay to force race condition
+
+        printf("[Process B] Waiting for Lock 1...\n");
+        get_lock(lock1_pipe); // Blocks forever waiting for Lock 1
+        printf("[Process B] Acquired Lock 1.\n");
+
+        put_lock(lock1_pipe);
+        put_lock(lock2_pipe);
+        exit(0);
+    } else {
+        // Parent Process: Process A (Acquires Lock 1 then Lock 2)
+        printf("[Process A] Attempting to acquire Lock 1...\n");
+        get_lock(lock1_pipe);
+        printf("[Process A] Acquired Lock 1.\n");
+
+        sleep(5); // Deliberate delay to force race condition
+
+        printf("[Process A] Waiting for Lock 2...\n");
+        get_lock(lock2_pipe); // Blocks forever waiting for Lock 2
+        printf("[Process A] Acquired Lock 2.\n");
+
+        put_lock(lock2_pipe);
+        put_lock(lock1_pipe);
+
+        wait(0);
+        printf("=== Execution Completed (Unexpected) ===\n");
+    }
+
+    exit(0);
+}

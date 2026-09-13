@@ -1,0 +1,191 @@
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+#define MAX_P 10
+#define MAX_R 10
+
+// DFS states for cycle detection
+#define UNVISITED 0
+#define VISITING  1
+#define VISITED   2
+
+// Global data structures for cycle extraction
+int parent_node[MAX_P];
+int cycle_start_node = -1;
+int cycle_end_node = -1;
+
+// Construct Wait-For Graph (WFG)
+// Edge P_i -> P_j exists if P_i is waiting for a resource held by P_j
+void build_wait_for_graph(int num_p, int num_r,
+                          int alloc[MAX_P][MAX_R],
+                          int req[MAX_P][MAX_R],
+                          int wfg[MAX_P][MAX_P]) {
+    for (int i = 0; i < num_p; i++) {
+        for (int j = 0; j < num_p; j++) {
+            wfg[i][j] = 0;
+        }
+    }
+
+    for (int i = 0; i < num_p; i++) {
+        for (int r = 0; r < num_r; r++) {
+            if (req[i][r] > 0) {
+                for (int j = 0; j < num_p; j++) {
+                    if (i != j && alloc[j][r] > 0) {
+                        wfg[i][j] = 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// DFS to detect cycle and track traversal path
+int dfs_find_cycle(int u, int num_p, int wfg[MAX_P][MAX_P], int state[]) {
+    state[u] = VISITING;
+
+    for (int v = 0; v < num_p; v++) {
+        if (wfg[u][v]) {
+            if (state[v] == VISITING) {
+                // Back-edge detected: cycle exists from v to u
+                cycle_start_node = v;
+                cycle_end_node = u;
+                return 1;
+            }
+            if (state[v] == UNVISITED) {
+                parent_node[v] = u;
+                if (dfs_find_cycle(v, num_p, wfg, state)) {
+                    return 1;
+                }
+            }
+        }
+    }
+
+    state[u] = VISITED;
+    return 0;
+}
+
+// Print detected cycle
+void print_detected_cycle() {
+    int path[MAX_P];
+    int count = 0;
+
+    int curr = cycle_end_node;
+    path[count++] = curr;
+
+    while (curr != cycle_start_node && count < MAX_P) {
+        curr = parent_node[curr];
+        path[count++] = curr;
+    }
+
+    // Print path in forward order: cycle_start -> ... -> cycle_end -> cycle_start
+    for (int i = count - 1; i >= 0; i--) {
+        printf("P%d -> ", path[i]);
+    }
+    printf("P%d\n", cycle_start_node);
+}
+
+// Runner function for individual test cases
+void run_detection_scenario(char *title, int num_p, int num_r,
+                            int alloc[MAX_P][MAX_R],
+                            int req[MAX_P][MAX_R]) {
+    int wfg[MAX_P][MAX_P];
+    int state[MAX_P];
+
+    printf("\n=========================================\n");
+    printf("%s\n", title);
+    printf("=========================================\n");
+
+    build_wait_for_graph(num_p, num_r, alloc, req, wfg);
+
+    printf("Constructed Wait-For Graph (WFG) Edges:\n");
+    int edge_count = 0;
+    for (int i = 0; i < num_p; i++) {
+        for (int j = 0; j < num_p; j++) {
+            if (wfg[i][j]) {
+                printf("  P%d -> P%d\n", i, j);
+                edge_count++;
+            }
+        }
+    }
+    if (edge_count == 0) {
+        printf("  (No waiting edges)\n");
+    }
+
+    for (int i = 0; i < num_p; i++) {
+        state[i] = UNVISITED;
+        parent_node[i] = -1;
+    }
+
+    cycle_start_node = -1;
+    cycle_end_node = -1;
+
+    int has_deadlock = 0;
+    for (int i = 0; i < num_p; i++) {
+        if (state[i] == UNVISITED) {
+            if (dfs_find_cycle(i, num_p, wfg, state)) {
+                has_deadlock = 1;
+                break;
+            }
+        }
+    }
+
+    if (has_deadlock) {
+        printf("\nResult: DEADLOCK DETECTED!\n");
+        printf("Cycle of processes: ");
+        print_detected_cycle();
+    } else {
+        printf("\nResult: NO DEADLOCK DETECTED (Graph is acyclic).\n");
+    }
+}
+
+int main(int argc, char *argv[]) {
+    // ----------------------------------------------------
+    // Scenario 1: No Deadlock (Acyclic Wait-For Graph)
+    // ----------------------------------------------------
+    // P0 holds R0, wants R1
+    // P1 holds R1, wants R2
+    // P2 holds R2 (no requests)
+    // WFG: P0 -> P1 -> P2
+    int num_p1 = 3, num_r1 = 3;
+    int alloc1[MAX_P][MAX_R] = {
+        {1, 0, 0}, // P0
+        {0, 1, 0}, // P1
+        {0, 0, 1}  // P2
+    };
+    int req1[MAX_P][MAX_R] = {
+        {0, 1, 0}, // P0 wants R1
+        {0, 0, 1}, // P1 wants R2
+        {0, 0, 0}  // P2 requests nothing
+    };
+
+    run_detection_scenario("Scenario 1: System Without Deadlock",
+                           num_p1, num_r1, alloc1, req1);
+
+    // ----------------------------------------------------
+    // Scenario 2: Deadlock with Circular Wait (4 Processes)
+    // ----------------------------------------------------
+    // P0 holds R0, wants R1
+    // P1 holds R1, wants R2
+    // P2 holds R2, wants R3
+    // P3 holds R3, wants R0
+    // WFG: P0 -> P1 -> P2 -> P3 -> P0
+    int num_p2 = 4, num_r2 = 4;
+    int alloc2[MAX_P][MAX_R] = {
+        {1, 0, 0, 0}, // P0
+        {0, 1, 0, 0}, // P1
+        {0, 0, 1, 0}, // P2
+        {0, 0, 0, 1}  // P3
+    };
+    int req2[MAX_P][MAX_R] = {
+        {0, 1, 0, 0}, // P0 wants R1
+        {0, 0, 1, 0}, // P1 wants R2
+        {0, 0, 0, 1}, // P2 wants R3
+        {1, 0, 0, 0}  // P3 wants R0
+    };
+
+    run_detection_scenario("Scenario 2: System With Deadlock (Circular Wait)",
+                           num_p2, num_r2, alloc2, req2);
+
+    exit(0);
+}

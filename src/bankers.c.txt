@@ -1,0 +1,164 @@
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+#define N 5  // Number of processes
+#define M 3  // Number of resource types
+
+// Global state matrices
+int Allocation[N][M] = {
+    {0, 1, 0},  // P0
+    {2, 0, 0},  // P1
+    {3, 0, 2},  // P2
+    {2, 1, 1},  // P3
+    {0, 0, 2}   // P4
+};
+
+int Max[N][M] = {
+    {7, 5, 3},  // P0
+    {3, 2, 2},  // P1
+    {9, 0, 2},  // P2
+    {2, 2, 2},  // P3
+    {4, 3, 3}   // P4
+};
+
+int Available[M] = {3, 3, 2};
+int Need[N][M];
+
+// Calculate Need = Max - Allocation
+void calculate_need() {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < M; j++) {
+            Need[i][j] = Max[i][j] - Allocation[i][j];
+        }
+    }
+}
+
+// Safety Algorithm
+int is_safe(int safe_seq[]) {
+    int work[M];
+    int finish[N];
+
+    for (int i = 0; i < M; i++) {
+        work[i] = Available[i];
+    }
+    for (int i = 0; i < N; i++) {
+        finish[i] = 0;
+    }
+
+    int count = 0;
+    while (count < N) {
+        int found = 0;
+        for (int p = 0; p < N; p++) {
+            if (finish[p] == 0) {
+                int can_allocate = 1;
+                for (int j = 0; j < M; j++) {
+                    if (Need[p][j] > work[j]) {
+                        can_allocate = 0;
+                        break;
+                    }
+                }
+
+                if (can_allocate) {
+                    for (int k = 0; k < M; k++) {
+                        work[k] += Allocation[p][k];
+                    }
+                    safe_seq[count++] = p;
+                    finish[p] = 1;
+                    found = 1;
+                }
+            }
+        }
+
+        // If no process could be completed in this iteration, system is unsafe
+        if (!found) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+// Resource Request Algorithm
+void request_resources(int p_id, int request[]) {
+    printf("\n--- Processing Request from P%d: (", p_id);
+    for (int i = 0; i < M; i++) {
+        printf("%d%s", request[i], (i == M - 1) ? "" : ", ");
+    }
+    printf(") ---\n");
+
+    // 1. Check if Request <= Need
+    for (int i = 0; i < M; i++) {
+        if (request[i] > Need[p_id][i]) {
+            printf("Error: Process exceeded its maximum claim (Request > Need).\n");
+            return;
+        }
+    }
+
+    // 2. Check if Request <= Available
+    for (int i = 0; i < M; i++) {
+        if (request[i] > Available[i]) {
+            printf("Error: Resources not available. Process P%d must wait.\n", p_id);
+            return;
+        }
+    }
+
+    // 3. Pretend to allocate resources
+    for (int i = 0; i < M; i++) {
+        Available[i] -= request[i];
+        Allocation[p_id][i] += request[i];
+        Need[p_id][i] -= request[i];
+    }
+
+    // Check if new state is safe
+    int safe_seq[N];
+    if (is_safe(safe_seq)) {
+        printf("Request granted. System is in a SAFE state.\n");
+        printf("Safe sequence: <");
+        for (int i = 0; i < N; i++) {
+            printf("P%d%s", safe_seq[i], (i == N - 1) ? "" : ", ");
+        }
+        printf(">\n");
+    } else {
+        // Rollback allocation
+        for (int i = 0; i < M; i++) {
+            Available[i] += request[i];
+            Allocation[p_id][i] -= request[i];
+            Need[p_id][i] += request[i];
+        }
+        printf("Request denied -- would lead to unsafe state.\n");
+    }
+}
+
+int main(int argc, char *argv[]) {
+    calculate_need();
+
+    printf("=========================================\n");
+    printf("   Banker's Algorithm Simulation (xv6)   \n");
+    printf("=========================================\n");
+
+    // Initial Safety Check
+    int safe_seq[N];
+    if (is_safe(safe_seq)) {
+        printf("Initial system state is SAFE.\n");
+        printf("Safe sequence: <");
+        for (int i = 0; i < N; i++) {
+            printf("P%d%s", safe_seq[i], (i == N - 1) ? "" : ", ");
+        }
+        printf(">\n");
+    } else {
+        printf("Initial system state is UNSAFE.\n");
+    }
+
+    // Scenario 1: Safe request (P1 requests [1, 0, 2])
+    int req1[M] = {1, 0, 2};
+    request_resources(1, req1);
+
+    // Scenario 2: Unsafe request (P4 requests [3, 3, 0])
+    // Need for P4 is [4, 3, 1], Available is [2, 3, 0] -> exceeds Available
+    // Alternative test: P0 requests [0, 2, 0]
+    int req2[M] = {0, 2, 0};
+    request_resources(0, req2);
+
+    exit(0);
+}

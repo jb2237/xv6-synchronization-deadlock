@@ -1,0 +1,77 @@
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+
+// Emulate shared resources/locks using pipes
+int lock1_pipe[2];
+int lock2_pipe[2];
+
+void init_locks() {
+    pipe(lock1_pipe);
+    pipe(lock2_pipe);
+    char token = 1;
+    write(lock1_pipe[1], &token, 1);
+    write(lock2_pipe[1], &token, 1);
+}
+
+void get_lock(int pipefd[2]) {
+    char token;
+    read(pipefd[0], &token, 1);
+}
+
+void put_lock(int pipefd[2]) {
+    char token = 1;
+    write(pipefd[1], &token, 1);
+}
+
+int main(int argc, char *argv[]) {
+    printf("============================================================\n");
+    printf("  Q3: Deadlock Prevention (Hierarchical Resource Ordering)  \n");
+    printf("============================================================\n");
+
+    init_locks();
+
+    int pid = fork();
+    if (pid < 0) {
+        printf("Fork failed\n");
+        exit(1);
+    }
+
+    if (pid == 0) {
+        // Child Process: Process B (MODIFIED: Strict global order -> Lock 1 then Lock 2)
+        printf("[Process B] Attempting to acquire Lock 1 (Global Order)...\n");
+        get_lock(lock1_pipe);
+        printf("[Process B] Acquired Lock 1.\n");
+
+        sleep(2);
+
+        printf("[Process B] Attempting to acquire Lock 2 (Global Order)...\n");
+        get_lock(lock2_pipe);
+        printf("[Process B] Acquired Lock 2.\n");
+
+        printf("[Process B] Critical section complete. Releasing locks.\n");
+        put_lock(lock2_pipe);
+        put_lock(lock1_pipe);
+        exit(0);
+    } else {
+        // Parent Process: Process A (Strict global order -> Lock 1 then Lock 2)
+        printf("[Process A] Attempting to acquire Lock 1 (Global Order)...\n");
+        get_lock(lock1_pipe);
+        printf("[Process A] Acquired Lock 1.\n");
+
+        sleep(2);
+
+        printf("[Process A] Attempting to acquire Lock 2 (Global Order)...\n");
+        get_lock(lock2_pipe);
+        printf("[Process A] Acquired Lock 2.\n");
+
+        printf("[Process A] Critical section complete. Releasing locks.\n");
+        put_lock(lock2_pipe);
+        put_lock(lock1_pipe);
+
+        wait(0);
+        printf("\n=== Workload Completed Successfully without Hanging ===\n");
+    }
+
+    exit(0);
+}
