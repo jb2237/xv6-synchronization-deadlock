@@ -1,0 +1,14 @@
+--- Makefile
++++ Makefile
+@@ -132,6 +132,11 @@ UPROGS=\
+ 	$U/_grind\
+ 	$U/_wc\
+ 	$U/_zombie\
++	$U/_bankers\
++	$U/_deadlockdetect\
++	$U/_resourceorder_bad\
++	$U/_resourceorder_fixed\
++	$U/_syncdeadlock\
+ 
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
